@@ -43,13 +43,13 @@ def getTemperature(data):
     return None
 
 def send_to_openred(measurement_data, device_id, user_id, latitude, longitude):
-    """Envía los datos a la API de OpenRed"""
+    """Sends data to OpenRed API"""
     api_url = "https://openred.ibercivis.es/api/measurements/"
     
-    # Convertir la tasa de dosis a µSv/h 
+    # Convert dose rate to µSv/h 
     radiation_value = measurement_data.get("dose_rate", 0) * 1000000 if measurement_data.get("dose_rate") is not None else 0
     
-    # Usar la fecha actual en formato ISO
+    # Use current date in ISO format
     current_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     
     payload = {
@@ -68,7 +68,7 @@ def send_to_openred(measurement_data, device_id, user_id, latitude, longitude):
         "weather": {}
     }
     
-    print("\n=== Enviando datos a OpenRed ===")
+    print("\n=== Sending data to OpenRed ===")
     print(f"URL: {api_url}")
     print("Headers:")
     headers = {
@@ -82,7 +82,7 @@ def send_to_openred(measurement_data, device_id, user_id, latitude, longitude):
     
     try:
         response = requests.post(api_url, json=payload, headers=headers)
-        print("\n=== Respuesta de OpenRed ===")
+        print("\n=== OpenRed Response ===")
         print(f"Status Code: {response.status_code}")
         print("Response Headers:")
         print(json.dumps(dict(response.headers), indent=2))
@@ -94,20 +94,20 @@ def send_to_openred(measurement_data, device_id, user_id, latitude, longitude):
             
         if response.status_code == 201:
             data = response.json()
-            print(f"\n✓ Medición guardada con ID: {data.get('measurement_id')}")
+            print(f"\n✓ Measurement saved with ID: {data.get('measurement_id')}")
             return True
         else:
             print(f"\n✗ Error: {response.status_code} - {response.reason}")
             return False
             
     except requests.exceptions.RequestException as e:
-        print(f"\n✗ Error de conexión: {str(e)}")
+        print(f"\n✗ Connection error: {str(e)}")
         return False
     finally:
         print("=" * 40)
 
 def obtener_ubicacion():
-    """Obtiene la ubicación usando ip-api.com"""
+    """Gets location using ip-api.com"""
     url = "http://ip-api.com/json"
     try:
         respuesta = requests.get(url, timeout=10)
@@ -117,7 +117,7 @@ def obtener_ubicacion():
                 return datos.get("lat"), datos.get("lon")
         return None
     except Exception as e:
-        print(f"Error obteniendo ubicación: {e}")
+        print(f"Error getting location: {e}")
         return None
 
 def main():
@@ -137,24 +137,21 @@ def main():
 
     args = parser.parse_args()
 
-    if hasattr(args, 'bluetooth_mac') and args:
-        print(f'Connecting to Radiacode via Bluetooth (MAC address: {args.bluetooth_mac})')
+    if hasattr(args, 'bluetooth_mac') and args.bluetooth_mac:
+        print(f'Connecting to RadiaCode via Bluetooth (MAC address: {args.bluetooth_mac})')
 
         try:
             rc = RadiaCode(bluetooth_mac=args.bluetooth_mac)
-        except DeviceNotFoundBT as e:
-            print(e)
-            return
-        except ValueError as e:
-            print(e)
+        except (DeviceNotFoundBT, ValueError) as e:
+            print('No RadiaCode found via Bluetooth. Is it turned on and paired?')
             return
     else:
-        print('Connecting to Radiacode via USB' + (f' (serial number: {args.serial})' if args.serial else ''))
+        print('Connecting to RadiaCode via USB' + (f' (serial number: {args.serial})' if args.serial else ''))
 
         try:
             rc = RadiaCode(serial_number=args.serial)
         except DeviceNotFoundUSB:
-            print('Device not found, check your USB connection')
+            print('No RadiaCode found via USB. Is it turned on and connected?')
             return
 
     serial = rc.serial_number()
@@ -169,24 +166,24 @@ def main():
     print(f'### Spectrum: {spectrum}')
     print('--------')
 
-    # Configuración para OpenRed
-    DEVICE_ID = 1  # Reemplaza con tu ID de dispositivo
-    USER_ID = 1    # Reemplaza con tu ID de usuario
+    # OpenRed configuration
+    DEVICE_ID = 1  # Replace with your device ID
+    USER_ID = 1    # Replace with your user ID
     
-    # Obtener ubicación
+    # Get location
     ubicacion = obtener_ubicacion()
     if ubicacion:
         LATITUDE, LONGITUDE = ubicacion
     else:
-        LATITUDE, LONGITUDE = 40.0, -3.0  # Valores por defecto
+        LATITUDE, LONGITUDE = 40.0, -3.0  # Default values
     
-    print(f'### Ubicación actual: {LATITUDE}, {LONGITUDE}')
+    print(f'### Current location: {LATITUDE}, {LONGITUDE}')
 
     print('### DataBuf:')
     while True:
         for v in rc.data_buf():
             measurement_data = {
-                "radiation":getDoseRate(v),
+                "radiation": getDoseRate(v),
                 "time": datetime.now().isoformat(),
                 "dose_rate": getDoseRate(v),
                 "cps": getCPS(v),
@@ -194,25 +191,25 @@ def main():
                 "temperature": getTemperature(v)
             }
             
-            # Imprimir datos localmente
+            # Print data locally
             tiempo = getMeasurementTime(v)
             if tiempo:
-                print(f"Hora: {tiempo}")
+                print(f"Time: {tiempo}")
             if measurement_data["dose_rate"] is not None:
-                print(f"Tasa de dosis: {measurement_data['dose_rate']:.6f} uSv/h")
+                print(f"Dose rate: {measurement_data['dose_rate']:.6f} uSv/h")
             if measurement_data["cps"] is not None:
                 print(f"CPS: {measurement_data['cps']:.2f}")
             if measurement_data["error"] is not None:
                 print(f"Error: {measurement_data['error']}%")
             if measurement_data["temperature"] is not None:
-                print(f"Temperatura: {measurement_data['temperature']}°C")
+                print(f"Temperature: {measurement_data['temperature']}°C")
             print("--------")
             
-            # Enviar datos a OpenRed
+            # Send data to OpenRed
             if send_to_openred(measurement_data, DEVICE_ID, USER_ID, LATITUDE, LONGITUDE):
-                print("Datos enviados exitosamente a OpenRed")
+                print("Data successfully sent to OpenRed")
             else:
-                print("Error al enviar datos a OpenRed")
+                print("Error sending data to OpenRed")
         
         time.sleep(5)
 

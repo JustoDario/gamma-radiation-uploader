@@ -6,7 +6,7 @@ import shutil
 
 def install_package(package):
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", package])
         print(f"✓ Instalado {package}")
     except:
         print(f"✗ Error instalando {package}")
@@ -99,7 +99,7 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="f123", MODE="0666
             print(f"\n✓ Python {python_version} instalado")
             
             # Actualizar pip
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "--upgrade", "pip"])
             print("✓ pip actualizado")
         except:
             print("✗ Error verificando Python/pip")
