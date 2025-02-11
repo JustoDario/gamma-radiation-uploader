@@ -4,7 +4,7 @@
 int main() {
     try {
         // Conecta con el dispositivo (por Bluetooth o USB)
-        RadiaCodeWrapper rc("52:43:01:02:03:04");  // Reemplaza con tu MAC address
+        RadiaCodeWrapper rc("52:43:06:60:0d:0d");  // Reemplaza con tu MAC address
         
         // Obtiene los datos
         auto data = rc.getData();
