@@ -1,0 +1,13 @@
+app:
+  name: "Ibercivis-radiacode"
+  version: "1.0.0"
+  executable_name: "Ibercivis-radiacode"
+  identifier: "com.ibercivis.radiacode"
+  icon: "assets/icon.png"
+  description: "Ibercivis RadiaCode Data Uploader"
+  publisher: "Ibercivis"
+
+linux:
+  app_name: "Ibercivis-radiacode"
+  executable_name: "Ibercivis-radiacode"
+  icon: "assets/icon.png" 
