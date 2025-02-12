@@ -1,155 +1,185 @@
 import flet as ft
-import sys
-import subprocess
-from pathlib import Path
-import asyncio
+from radiacode import RadiaCode
+from radiacode.transports.usb import DeviceNotFound as DeviceNotFoundUSB
+import requests
 
-def verify_radiacode_dependencies():
-    """Verifica todas las dependencias necesarias para radiacode_data_uploader.py"""
-    missing_deps = []
-    
-    # Verificar dependencias de Python
-    python_deps = {
-        'requests': 'requests',
-        'radiacode': 'radiacode',
-        'ctypes': '_ctypes',
-        'usb.core': 'pyusb',
-        'json': 'json',
-        'argparse': 'argparse',
-    }
-    
-    for module, package in python_deps.items():
-        try:
-            __import__(module)
-        except ImportError:
-            missing_deps.append(package)
-    
-    # Verificar dependencias del sistema
-    system_deps = {
-        'libusb-1.0-0-dev': '/usr/lib/x86_64-linux-gnu/libusb-1.0.so',
-        'python3-dev': '/usr/include/python3.10/Python.h',
-        'libffi-dev': '/usr/lib/x86_64-linux-gnu/libffi.so'
-    }
-    
-    for package, path in system_deps.items():
-        if not Path(path).exists():
-            missing_deps.append(package)
-    
-    return missing_deps
+def obtener_ubicacion():
+    """Gets location using ip-api.com"""
+    url = "http://ip-api.com/json"
+    try:
+        respuesta = requests.get(url, timeout=10)
+        if respuesta.status_code == 200:
+            datos = respuesta.json()
+            if datos.get("status") == "success":
+                return f"{datos.get('lat')}, {datos.get('lon')}"
+        return "--"
+    except Exception as e:
+        print(f"Error getting location: {e}")
+        return "--"
 
-class RadiaCodeMonitor:
-    def __init__(self):
-        self.rc = None
-        self.is_monitoring = False
+def get_radiacode_data():
+    """Obtiene una única lectura de todos los datos del RadiaCode"""
+    try:
+        rc = RadiaCode()
+        serial = rc.serial_number()
         
-    async def start(self):
-        try:
-            from radiacode import RadiaCode
-            from radiacode.transports.usb import DeviceNotFound
-            try:
-                self.rc = RadiaCode()
-                serial = self.rc.serial_number()
-                self.is_monitoring = True
-                return True, serial
-            except DeviceNotFound:
-                return False, "No se encontró el dispositivo RadiaCode. ¿Está conectado?"
-            except Exception as e:
-                return False, f"Error al conectar: {str(e)}"
-        except Exception as e:
-            return False, f"Error al inicializar RadiaCode: {str(e)}"
-    
-    def stop(self):
-        self.is_monitoring = False
-        self.rc = None
-    
-    async def get_dose_rate(self):
-        if not self.rc or not self.is_monitoring:
-            return None
-            
-        try:
-            for data in self.rc.data_buf():
-                if hasattr(data, 'dose_rate'):
-                    return data.dose_rate
-            return None
-        except Exception as e:
-            print(f"Error leyendo dose rate: {e}")
-            return None
+        # Obtener una única lectura
+        for data in rc.data_buf():
+            return {
+                "cps": data.count_rate if hasattr(data, 'count_rate') else 0,
+                "dose_rate": data.dose_rate if hasattr(data, 'dose_rate') else 0,
+                "temperature": data.temperature if hasattr(data, 'temperature') else 0,
+                "coords": obtener_ubicacion()
+            }
+        return None
+    except DeviceNotFoundUSB:
+        return None
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return None
 
-async def main(page: ft.Page):
-    page.title = "RadiaCode App"
-    page.padding = 20
-    
-    # Crear instancia del monitor
-    monitor = RadiaCodeMonitor()
-    
-    async def update_dose_rate():
-        try:
-            while monitor.is_monitoring:
-                dose_rate = await monitor.get_dose_rate()
-                if dose_rate is not None:
-                    dose_rate_text.value = f"Dose Rate: {dose_rate:.6f} µSv/h"
-                    await page.update_async()
-                await asyncio.sleep(1)
-        except Exception as e:
-            print(f"Error en update_dose_rate: {e}")
-    
-    async def toggle_monitoring(e):
-        if not monitor.is_monitoring:
-            # Primero verificar dependencias
-            missing = verify_radiacode_dependencies()
-            if missing:
-                status.value = f"❌ Faltan las siguientes dependencias:\n" + "\n".join(f"- {dep}" for dep in missing)
-                status.color = "red"
-                device_info.visible = False
-                dose_rate_text.visible = False
-                await page.update_async()
-                return
-                
-            # Intentar conectar con el RadiaCode
-            success, result = await monitor.start()
-            if success:
-                status.value = "✅ Conectado al dispositivo"
-                status.color = "green"
-                device_info.value = f"📟 RadiaCode detectado\nNúmero de Serie: {result}"
-                device_info.color = "green"
-                device_info.visible = True
-                dose_rate_text.visible = True
-                monitor_btn.text = "Detener Monitoreo"
-                asyncio.create_task(update_dose_rate())
-            else:
-                status.value = f"❌ {result}"
-                status.color = "red"
-                device_info.visible = False
-                dose_rate_text.visible = False
-        else:
-            monitor.stop()
-            monitor_btn.text = "Iniciar Monitoreo"
-            dose_rate_text.visible = False
-            device_info.visible = False
-            status.value = "Monitoreo detenido"
+def main(page: ft.Page):
+    page.theme_mode = ft.ThemeMode.DARK
+    page.title = "Radiocode"
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+
+    # Contenedor CPS
+    containerCps = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("CPS", size=30, color=ft.colors.BLACK, font_family="Arial"),
+                ft.Text("--", size=30, color=ft.colors.BLACK, font_family="Arial", key="cps_value")
+            ],
+            spacing=2,
+        ),
+        margin=10,
+        padding=10,
+        alignment=ft.alignment.center,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=[ft.colors.GREY, ft.colors.WHITE]
+        ),
+        width=300,
+        height=150,
+        border_radius=10
+    )
+
+    # Contenedor Temperatura
+    containerTemp = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("TEMP", size=25, color=ft.colors.BLACK, font_family="Arial"),
+                ft.Text("--", size=30, color=ft.colors.BLACK, font_family="Arial", key="temp_value")
+            ],
+            spacing=2,
+        ),
+        margin=10,
+        padding=10,
+        alignment=ft.alignment.center,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=[ft.colors.GREY, ft.colors.WHITE]
+        ),
+        width=300,
+        height=150,
+        border_radius=10
+    )
+
+    # Contenedor Dose
+    containerDose = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("DOSE", size=30, color=ft.colors.BLACK, font_family="Arial"),
+                ft.Text("--", size=30, color=ft.colors.BLACK, font_family="Arial", key="dose_value")
+            ],
+            spacing=2,
+        ),
+        margin=10,
+        padding=10,
+        alignment=ft.alignment.center,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=[ft.colors.GREY, ft.colors.WHITE]
+        ),
+        width=300,
+        height=150,
+        border_radius=10
+    )
+
+    # Contenedor Coordenadas
+    containerCoord = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("GPS", size=25, color=ft.colors.BLACK, font_family="Arial"),
+                ft.Text("--", size=25, color=ft.colors.BLACK, font_family="Arial", key="coord_value")
+            ],
+            spacing=2,
+        ),
+        margin=10,
+        padding=10,
+        alignment=ft.alignment.center,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_center,
+            end=ft.alignment.bottom_center,
+            colors=[ft.colors.GREY, ft.colors.WHITE]
+        ),
+        width=300,
+        height=150,
+        border_radius=10
+    )
+
+    def update_values(e):
+        data = get_radiacode_data()
+        if data:
+            # Actualizar valores en los contenedores
+            for control in containerCps.content.controls:
+                if hasattr(control, 'key') and control.key == "cps_value":
+                    control.value = f"{data['cps']:.2f}"
             
-        await page.update_async()
-    
-    title = ft.Text("RadiaCode App", size=30, weight=ft.FontWeight.BOLD)
-    description = ft.Text("Aplicación base para RadiaCode")
-    monitor_btn = ft.ElevatedButton(
-        text="Iniciar Monitoreo",
-        on_click=lambda e: asyncio.create_task(toggle_monitoring(e))
+            for control in containerTemp.content.controls:
+                if hasattr(control, 'key') and control.key == "temp_value":
+                    control.value = f"{data['temperature']}°C"
+            
+            for control in containerDose.content.controls:
+                if hasattr(control, 'key') and control.key == "dose_value":
+                    control.value = f"{data['dose_rate']:.6f}"
+            
+            for control in containerCoord.content.controls:
+                if hasattr(control, 'key') and control.key == "coord_value":
+                    control.value = data['coords']
+            
+            page.update()
+
+    # Botón para actualizar valores
+    update_btn = ft.ElevatedButton("Obtener Lectura", on_click=update_values)
+
+    # Contenedor principal
+    main_container = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text("RadiaCode OpenRed", size=40, color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
+                ft.Row(
+                    controls=[containerCps, containerTemp],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=30,
+                ),
+                ft.Row(
+                    controls=[containerDose, containerCoord],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    spacing=30,
+                ),
+                update_btn
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=30,
+        ),
     )
-    status = ft.Text("", size=16)
-    device_info = ft.Text("", size=16, visible=False)
-    dose_rate_text = ft.Text("", size=20, visible=False)
-    
-    page.add(
-        ft.Column([
-            title,
-            description,
-            monitor_btn,
-            status,
-            device_info,
-            dose_rate_text
-        ], alignment=ft.MainAxisAlignment.CENTER, spacing=20)
-    )
+
+    page.add(main_container)
 
 if __name__ == "__main__":
-    ft.app(target=main, view=ft.AppView.FLET_APP) 
+    ft.app(target=main)
